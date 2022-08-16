@@ -1,6 +1,9 @@
+from unicodedata import name
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from forms import ArtistForm
 from models.models import db, Artist
+
+from datetime import datetime
 
 artist_controller = Blueprint('artist_controller', __name__, template_folder='templates')
 
@@ -47,7 +50,8 @@ def show_artist(artist_id):
       "venue_image_link": show.venue.image_link,
       "start_time": str(show.start_time)
     }
-    if show.upcoming:
+    current_time = datetime.now()
+    if current_time > show.start_time:
       upcoming_shows.append(show_info)
     else:
       past_shows.append(show_info)
@@ -76,8 +80,8 @@ def show_artist(artist_id):
 #  ----------------------------------------------------------------
 @artist_controller.route('/artists/<int:artist_id>/edit', methods=['GET'])
 def edit_artist(artist_id):
-  form = ArtistForm()
   artist = Artist.query.get(artist_id)
+  form = ArtistForm(obj=artist)
   data={
     "id": artist.id,
     "name": artist.name,
@@ -129,24 +133,21 @@ def create_artist_submission():
   # called upon submitting the new artist listing form
   # TODO: insert form data as a new Venue record in the db, instead
   # TODO: modify data to be the data object returned from db insertion
-  artist = Artist()
-  artist.name = request.form['name']
-  artist.city = request.form['city']
-  artist.state = request.form['state']
-  artist.genres = request.form['genres']
-  artist.phone = request.form['phone']
-  artist.facebook_link = request.form['facebook_link']
-  artist.image_link = request.form['image_link']
-  try:
-    db.session.add(artist)
-    db.session.commit()
-    # on successful db insert, flash success
-    flash('Artist ' + request.form['name'] + ' was successfully listed!')
-  except:
-    db.session.rollback()
-    # TODO: on unsuccessful db insert, flash an error instead.
-    flash('An error occurred. Artist ' +artist.name + ' could not be listed.')
-  finally:
-    db.session.close()
+  form = ArtistForm(request.form)
+  if form.validate():
+    artist = Artist(name=form.name.data, city=form.city.data, state=form.state.data, genres=form.state.data, phone=form.genres.data, facebook_link=form.facebook_link.data, image_link=form.image_link.data)
+    try:
+      db.session.add(artist)
+      db.session.commit()
+      # on successful db insert, flash success
+      flash('Artist ' + request.form['name'] + ' was successfully listed!')
+    except:
+      db.session.rollback()
+      # TODO: on unsuccessful db insert, flash an error instead.
+      flash('An error occurred. Artist ' +artist.name + ' could not be listed.')
+    finally:
+      db.session.close()
 
-  return redirect(url_for('index'))
+    return redirect(url_for('index'))
+  flash('Invalid input.')
+  return render_template('pages/home.html')

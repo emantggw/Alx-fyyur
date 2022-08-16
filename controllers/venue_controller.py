@@ -1,7 +1,8 @@
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from forms import VenueForm
-from models.models import db, Venue
+from models.models import db, Venue, Show
 
+from datetime import datetime
 venue_controller = Blueprint('venue_controller', __name__, template_folder='templates')
 
 @venue_controller.route('/venues')
@@ -11,17 +12,20 @@ def venues():
   venues_areas = db.session.query(Venue.city, Venue.state).group_by(Venue.state, Venue.city).all()
   data = []
   for area in venues_areas:
-    venues = db.session.query(Venue.id, Venue.name, Venue.upcoming_shows_count).filter(Venue.city==area[0], Venue.state==area[1]).all()
+    venues = db.session.query(Venue.id, Venue.name).filter(Venue.city==area[0], Venue.state==area[1]).all()
     data.append({
       "city": area[0],
       "state": area[1],
       "venues": []
     })
+    
     for venue in venues:
+      current_time = datetime.now()
+      num_upcoming_shows = Show.query.filter(db.and_(Show.start_time > current_time, Show.venue_id == venue[0])).count()
       data[-1]["venues"].append({
         "id": venue[0],
         "name": venue[1],
-        "num_upcoming_shows": venue[2]
+        "num_upcoming_shows": num_upcoming_shows
       })
       
   return render_template('pages/venues.html', areas=data)
@@ -39,10 +43,12 @@ def search_venues():
   }
   
   for venue in results:
+    current_time = datetime.now()
+    num_upcoming_shows = Show.query.filter(db.and_(Show.start_time > current_time, Show.venue_id == venue.id)).count()
     response["data"].append({
       "id": venue.id,
       "name": venue.name,
-      "num_upcoming_shows": venue.upcoming_shows_count
+      "num_upcoming_shows": num_upcoming_shows
     })
 
   return render_template('pages/search_venues.html', results=response, search_term=request.form.get('search_term', ''))
@@ -63,7 +69,8 @@ def show_venue(venue_id):
       "artist_image_link": show.artist.image_link,
       "start_time": str(show.start_time)
     }
-    if(show.upcoming):
+    current_time = datetime.now()
+    if(show.start_time < current_time):
       upcoming_shows.append(show_info)
     else:
       past_shows.append(show_info)
@@ -100,29 +107,25 @@ def create_venue_form():
 def create_venue_submission():
   # TODO: insert form data as a new Venue record in the db, instead
   # TODO: modify data to be the data object returned from db insertion
-  venue = Venue()
-  venue.name = request.form['name']
-  venue.city = request.form['city']
-  venue.state =  request.form['state']
-  venue.address = request.form['address']
-  venue.phone = request.form['phone']
-  venue.facebook_link = request.form['facebook_link']
-  venue.genres = request.form['genres']
-  venue.website = request.form['website_link']
-  venue.image_link = request.form['image_link']
-  try:
-    db.session.add(venue)
-    db.session.commit()
-    # on successful db insert, flash success
-    flash('Venue ' + request.form['name'] + ' was successfully listed!')
-  except:
-    db.rollback()
-    # TODO: on unsuccessful db insert, flash an error instead.
-    flash('An error occurred. Venue ' + venue.name + ' could not be listed.')
-  finally:
-    db.session.close()
-  # see: http://flask.pocoo.org/docs/1.0/patterns/flashing/
-  return render_template('pages/home.html')
+  form = VenueForm(request.form)
+  if form.validate():
+    venue = Venue(name=form.name.data, city=form.city.data, state=form.state.data, address=form.address.data, facebook_link=form.facebook_link.data, genres=form.genres.data, website=form.website_link.data, image_link=form.image_link.data)
+    try:
+      db.session.add(venue)
+      db.session.commit()
+      # on successful db insert, flash success
+      flash('Venue ' + request.form['name'] + ' was successfully listed!')
+    except:
+      db.session.rollback()
+      # TODO: on unsuccessful db insert, flash an error instead.
+      flash('An error occurred. Venue could not be listed.')
+    finally:
+      db.session.close()
+    # see: http://flask.pocoo.org/docs/1.0/patterns/flashing/
+    return render_template('pages/home.html')
+  else:
+    flash('Invalid input.')
+    return render_template('pages/home.html')
 
 @venue_controller.route('/venues/<venue_id>', methods=['DELETE'])
 def delete_venue(venue_id):
@@ -145,8 +148,8 @@ def delete_venue(venue_id):
 
 @venue_controller.route('/venues/<int:venue_id>/edit', methods=['GET'])
 def edit_venue(venue_id):
-  form = VenueForm()
   venue = Venue.query.get(venue_id)
+  form = VenueForm(obj=venue)
   data={
     "id": venue.id,
     "name": venue.name,
@@ -177,7 +180,7 @@ def edit_venue_submission(venue_id):
   venue.facebook_link = request.form['facebook_link']
   venue.genres = request.form['genres']
   venue.image_link = request.form['image_link']
-  venue.website = request.form['website']
+  venue.website = request.form['website_link']
 
   try:
     db.session.commit()
